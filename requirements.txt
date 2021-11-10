@@ -26,3 +26,4 @@ zope.interface==5.4.0
 SQLAlchemy~=1.4.26
 python-dotenv~=0.19.1
 GeoAlchemy2~=0.9.4
+h3~=3.7.3
