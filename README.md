@@ -1,4 +1,7 @@
 # helium-arango-etl
+![build image](https://github.com/evandiewald/helium-arango-etl/actions/workflows/docker-image.yml/badge.svg)
+![publish image](https://github.com/evandiewald/helium-arango-etl/actions/workflows/docker-publish.yml/badge.svg)
+
 ETL service that converts relational blockchain data into a native graph format for storage in [ArangoDB](https://www.arangodb.com/).
 
 ## About
