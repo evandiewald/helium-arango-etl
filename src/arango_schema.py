@@ -13,22 +13,23 @@ _validation_base = {
     }
 
 
-class HotspotCollection(COL.Collection):
+def ensureGeoJsonIndex(collection: COL.Collection, fields, name=None, geoJson=False):
+    """Creates a geo index if it does not already exist, and returns it."""
+    data = {
+        "type": "geo",
+        "fields": fields,
+        "geoJson": geoJson
+    }
+    if name:
+        data["name"] = name
+    ind = Index(collection, creationData=data)
+    collection.indexes["geo"][ind.infos["id"]] = ind
+    if name:
+        collection.indexes_by_name[name] = ind
+    return ind
 
-    def ensureGeoJsonIndex(self, fields, name = None, geoJson = False):
-        """Creates a geo index if it does not already exist, and returns it."""
-        data = {
-            "type" : "geo",
-            "fields" : fields,
-            "geoJson" : geoJson
-        }
-        if name:
-            data["name"] = name
-        ind = Index(self, creationData = data)
-        self.indexes["geo"][ind.infos["id"]] = ind
-        if name:
-            self.indexes_by_name[name] = ind
-        return ind
+
+class HotspotCollection(COL.Collection):
 
     _validation = _validation_base
 
@@ -86,7 +87,29 @@ class PaymentEdges(COL.Edges):
     }
 
 
-# class TokenFlowGraph(Graph):
+class BalancesCollection(COL.Collection):
 
-    # _edgeDefinitions =
-    # _orphanedCollections = []
+    _validation = _validation_base
+
+    _fields = {
+        '_key': COL.Field(validators=[VAL.NotNull(), VAL.String()]),
+        'daily_balances': COL.Field()
+    }
+
+
+class WitnessEdges(COL.Edges):
+
+    _validation = _validation_base
+
+    _fields = {
+        '_key': COL.Field(validators=[VAL.NotNull(), VAL.String()]),
+        '_from': COL.Field(validators=[VAL.NotNull(), VAL.String()]),
+        '_to': COL.Field(validators=[VAL.NotNull(), VAL.String()]),
+        'snr': COL.Field(validators=[VAL.NotNull(), VAL.Numeric()]),
+        'frequency': COL.Field(validators=[VAL.NotNull(), VAL.Numeric()]),
+        'signal': COL.Field(validators=[VAL.NotNull(), VAL.Int()]),
+        'time': COL.Field(validators=[VAL.NotNull(), VAL.Int()]),
+        'datarate': COL.Field(validators=[VAL.String()]),
+        'location': COL.Field(validators=[VAL.String()]),
+        'timestamp': COL.Field(validators=[VAL.NotNull(), VAL.Int()]),
+    }
