@@ -56,17 +56,33 @@ def get_hotspots(session: Session, include_key: bool = True, h3_to_geo: bool = T
                 gateway['geo_location'] = {'coordinates': h3.h3_to_geo(gateway['location_hex'])[::-1], 'type': 'Point'}
             except TypeError:
                 gateway['geo_location'] = {'coordinates': None, 'type': 'Point'}
+        # initialize rewards_5d field as null
+        gateway['rewards_5d'] = None
         gateways.append(gateway)
     return gateways
 
 
-def get_hotspot_rewards(session: Session, address: str, min_time: int, max_time: int, transaction_type: TransactionType = TransactionType.rewards_v1) -> int:
+def get_hotspot_rewards_by_address(session: Session, address: str, min_time: int, max_time: int, transaction_type: TransactionType = TransactionType.rewards_v1) -> int:
     query = session.query(Rewards.amount, Rewards.gateway, Transactions.type).join(Rewards, Rewards.transaction_hash == Transactions.hash)
     result = query.filter(and_(Rewards.time > min_time, Rewards.time < max_time, Rewards.gateway == address, Transactions.type == transaction_type))
     rewards = []
     for row in result.all():
         rewards.append(row[0])
     return sum(rewards)
+
+
+def get_hotspot_rewards_overall(engine: Engine, min_time: int, max_time: int) -> List[dict]:
+    sql = f"""SELECT gateway, sum(amount) from rewards
+    where time > {min_time} and time < {max_time}
+    group by gateway
+    order by gateway;
+    """
+    with engine.connect() as conn:
+        result = conn.execute(sql)
+        rewards = []
+        for reward in result.all():
+            rewards.append({'address': reward[0], 'rewards': reward[1]})
+    return rewards
 
 
 def get_recent_payments(session: Session, min_time: int, max_time: int, transaction_type: TransactionType = TransactionType.payment_v1) -> List[Dict]:

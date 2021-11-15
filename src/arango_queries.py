@@ -1,3 +1,4 @@
+import pyArango.theExceptions
 from pyArango.theExceptions import *
 from pyArango.connection import *
 from pyArango.graph import *
@@ -47,3 +48,12 @@ def remove_witnesses_before_time(database: Database, cutoff_time: int):
     database.AQLQuery(aql)
 
 
+def update_rewards(database: Database, rewards_data: List[dict]):
+    for doc in rewards_data:
+        aql = f"""for hotspot in hotspots
+        update {{_key: '{doc['address']}', rewards_5d: {doc['rewards']}}} in hotspots"""
+        try:
+            database.AQLQuery(aql)
+        except pyArango.theExceptions.AQLQueryError:
+            # this catches '1Wh4bh' gateway
+            continue

@@ -17,13 +17,13 @@ To run helium-arango-etl, you will need:
 1. Make a copy of `.env.template` called `.env` and include the URL's and credentials to access both databases.
 2. Build the docker image with:
 
-   `docker build -t helium/arango-etl .`
+   `docker build -t helium-arango-etl:latest .`
 3. Run the container with:
 
-    `docker run -d --name arango-etl helium/arango-etl`
+    `docker run -d --name etl helium-arango-etl`
 4. To view logs:
 
-    `docker exec arango-etl tail -f logs/etl.log`
+    `docker exec etl tail -f logs/etl.log`
 
 ## Related Works
 

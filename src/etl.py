@@ -78,11 +78,11 @@ class HeliumArangoETL(object):
 
         accounts_list = get_accounts(self.postgres_session)
         self.accounts.importBulk(accounts_list, onDuplicate='update')
-        logging.info(f'{len(accounts_list)} accounts imported from inventory\nBeginning import of hotspots...')
+        logging.info(f'{len(accounts_list)} accounts imported from inventory. Beginning import of hotspots...')
 
         hotspots_list = get_hotspots(self.postgres_session)
         self.hotspots.importBulk(hotspots_list, onDuplicate='update')
-        logging.info(f'{len(hotspots_list)} hotspots imported from inventory\nBeginning import of witness lists...')
+        logging.info(f'{len(hotspots_list)} hotspots imported from inventory. Beginning import of witness lists...')
 
         min_witness_time = self.current_time - 3600*24*self.recent_witness_days_cutoff
         witness_list = get_recent_witnesses(self.postgres_session, max_time=self.current_time, min_time=min_witness_time)
@@ -90,7 +90,12 @@ class HeliumArangoETL(object):
         self.witnesses.importBulk(witness_list, onDuplicate='replace')
         # after importing new witnesses, remove old ones (this may be an interesting diff operation later on?)
         remove_witnesses_before_time(self.db, min_witness_time)
-        logging.info(f'{len(witness_list)} unique witness paths reported over last {self.recent_witness_days_cutoff} days\nBeginning import of payments and balances...')
+        logging.info(f'{len(witness_list)} unique witness paths reported over last {self.recent_witness_days_cutoff} days. Beginning import of rewards data...')
+
+        # get rewards over same range as witnesses
+        rewards_list = get_hotspot_rewards_overall(self.postgres_engine, min_witness_time, self.current_time)
+        update_rewards(self.db, rewards_list)
+        logging.info(f'\nRewards data imported for {len(rewards_list)} hotspots. Beginning import of payments and balances...')
 
     def sync_dynamic_collections(self, min_time, max_time):
         """Dynamic collections include values/edges that we want to track over time, like payments and changes in balances."""

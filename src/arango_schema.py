@@ -52,7 +52,8 @@ class HotspotCollection(COL.Collection):
         'location_hex': COL.Field(validators=[VAL.String()]),
         'mode': COL.Field(validators=[VAL.Enumeration(GatewayMode)]),
         'payer': COL.Field(validators=[VAL.String()]),
-        'geo_location': COL.Field()
+        'geo_location': COL.Field(),
+        'rewards_5d': COL.Field()
     }
 
 
