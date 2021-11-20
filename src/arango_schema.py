@@ -53,7 +53,11 @@ class HotspotCollection(COL.Collection):
         'mode': COL.Field(validators=[VAL.Enumeration(GatewayMode)]),
         'payer': COL.Field(validators=[VAL.String()]),
         'geo_location': COL.Field(),
-        'rewards_5d': COL.Field()
+        'rewards_5d': COL.Field(validators=[VAL.Int()]),
+        'betweenness_centrality': COL.Field(validators=[VAL.Numeric()]),
+        'pagerank': COL.Field(validators=[VAL.Numeric()]),
+        'hub_score': COL.Field(validators=[VAL.Numeric()]),
+        'authority_score': COL.Field(validators=[VAL.Numeric()])
     }
 
 

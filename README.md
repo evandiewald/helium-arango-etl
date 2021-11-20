@@ -12,7 +12,7 @@ Helium's Blockchain API is an effective way to view historical data stored on-ch
 ## Dependencies
 To run helium-arango-etl, you will need:
 - Read/write access to a running [ArangoDB instance](https://www.arangodb.com/download-major/docker/).
-  - e.g. `docker run -p 8529:8529 -e ARANGO_ROOT_PASSWORD=openSesame arangodb/arangodb:3.8.2`
+  - e.g. `docker run -d --name arango -p 8529:8529 -e ARANGO_ROOT_PASSWORD=openSesame arangodb/arangodb:3.8.2`
   - If running locally, you can view the Arango WebUI at [`http://localhost:8529/`](http://localhost:8529/)
 - Read access to a PostgreSQL database populated by a [blockchain-etl](https://github.com/helium/blockchain-etl) node.
 

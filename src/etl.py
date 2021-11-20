@@ -33,6 +33,7 @@ class HeliumArangoETL(object):
 
         self.min_block_diff_for_update = int(os.getenv('ETL_MIN_BLOCK_DIFF_FOR_UPDATE'))
         self.recent_witness_days_cutoff = int(os.getenv('ETL_RECENT_WITNESS_DAYS_CUTOFF'))
+        self.batch_size = int(os.getenv('ETL_IMPORT_BATCH_SIZE'))
 
         arango_connection = Connection(
             arangoURL=os.getenv('ARANGO_URL'),
@@ -67,35 +68,33 @@ class HeliumArangoETL(object):
         self.follow()
 
     def sync_chunk(self, min_time: int, max_time: int):
-        payments_list = get_recent_payments(self.postgres_session, min_time=min_time, max_time=max_time)
-        self.payments.importBulk(payments_list, onDuplicate='ignore')
+        import_payments_batched(self.postgres_session, self.batch_size, self.payments, min_time, max_time)
 
-        balances_data = get_balances_by_day(self.postgres_engine, min_time=min_time, max_time=max_time)
-        update_daily_balances(self.db, balances_data)
+        import_daily_balances_batched(self.postgres_engine, self.batch_size, self.db, min_time, max_time)
 
     def sync_inventories(self):
         """Inventories include collections/edges that we only want the most recent snapshot of, like hotspots, accounts, and, witness lists."""
 
-        accounts_list = get_accounts(self.postgres_session)
-        self.accounts.importBulk(accounts_list, onDuplicate='update')
-        logging.info(f'{len(accounts_list)} accounts imported from inventory. Beginning import of hotspots...')
+        num_accounts_imported = import_accounts_batched(self.postgres_session, self.batch_size, self.accounts)
+        logging.info(f'{num_accounts_imported} accounts imported from inventory. Beginning import of hotspots...')
 
-        hotspots_list = get_hotspots(self.postgres_session)
-        self.hotspots.importBulk(hotspots_list, onDuplicate='update')
-        logging.info(f'{len(hotspots_list)} hotspots imported from inventory. Beginning import of witness lists...')
+        num_hotspots_imported = import_hotspots_batched(self.postgres_session, self.batch_size, self.hotspots)
+        logging.info(f'{num_hotspots_imported} hotspots imported from inventory. Beginning import of witness lists...')
 
         min_witness_time = self.current_time - 3600*24*self.recent_witness_days_cutoff
-        witness_list = get_recent_witnesses(self.postgres_session, max_time=self.current_time, min_time=min_witness_time)
-        # witness list is ordered by ascending time, so we only take the most recent
-        self.witnesses.importBulk(witness_list, onDuplicate='replace')
+        num_witnesses_imported = import_witnesses_batched(self.postgres_session, self.batch_size, self.witnesses, min_witness_time, self.current_time)
         # after importing new witnesses, remove old ones (this may be an interesting diff operation later on?)
         remove_witnesses_before_time(self.db, min_witness_time)
-        logging.info(f'{len(witness_list)} unique witness paths reported over last {self.recent_witness_days_cutoff} days. Beginning import of rewards data...')
+        logging.info(f'{num_witnesses_imported} witness paths reported over last {self.recent_witness_days_cutoff} days. Beginning import of rewards data...')
 
         # get rewards over same range as witnesses
-        rewards_list = get_hotspot_rewards_overall(self.postgres_engine, min_witness_time, self.current_time)
-        update_rewards(self.db, rewards_list)
-        logging.info(f'\nRewards data imported for {len(rewards_list)} hotspots. Beginning import of payments and balances...')
+        num_rewards_updated = import_rewards_batched(self.postgres_session, self.batch_size, self.db, min_witness_time, self.current_time)
+        logging.info(f'Rewards data imported for {num_rewards_updated} hotspots. Beginning extraction of global graph metrics...')
+
+        # run global graph analyses and update hotspots where applicable
+        # TODO: graph analysis in batches
+        global_witness_graph_metrics(self.db)
+        logging.info(f'Global graph metrics applied. Beginning import of payments and balances...')
 
     def sync_dynamic_collections(self, min_time, max_time):
         """Dynamic collections include values/edges that we want to track over time, like payments and changes in balances."""
