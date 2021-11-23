@@ -188,29 +188,6 @@ class DCBurns(Base):
         return json.dumps(self.as_dict())
 
 
-class Locations(Base):
-    __tablename__ = 'locations'
-
-    location = Column('location', Text(), primary_key=True)
-    long_street = Column('long_street', Text())
-    short_street = Column('short_street', Text())
-    long_city = Column('long_city', Text())
-    short_city = Column('short_city', Text())
-    long_state = Column('long_state', Text())
-    short_state = Column('short_state', Text())
-    long_country = Column('long_country', Text())
-    short_country = Column('short_country', Text())
-    search_city = Column('search_city', Text())
-    city_id = Column('city_id', Text())
-    geometry = Column('geometry', Geometry())
-
-    def as_dict(self) -> Dict:
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
-
-    def as_json(self) -> str:
-        return json.dumps(self.as_dict())
-
-
 class Blocks(Base):
     __tablename__ = 'blocks'
 
@@ -226,6 +203,27 @@ class Blocks(Base):
     rescue_signature = Column('rescue_signature', Text())
     snapshot_hash = Column('snapshot_hash', Text())
     created_at = Column('created_at', DateTime(timezone=True))
+
+    def as_dict(self) -> Dict:
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+    def as_json(self) -> str:
+        return json.dumps(self.as_dict())
+
+
+class Locations(Base):
+    __tablename__ = 'locations'
+
+    location = Column('location', Text(), primary_key=True, nullable=False)
+    long_street = Column('long_street', Text())
+    short_street = Column('short_street', Text())
+    long_city = Column('long_city', Text())
+    short_city = Column('short_city', Text())
+    long_state = Column('long_state', Text())
+    short_state = Column('short_state', Text())
+    long_country = Column('long_country', Text())
+    short_country = Column('short_country', Text())
+    city_id = Column('city_id', Text())
 
     def as_dict(self) -> Dict:
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}

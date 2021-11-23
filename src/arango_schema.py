@@ -102,6 +102,19 @@ class BalancesCollection(COL.Collection):
     }
 
 
+class CitiesCollection(COL.Collection):
+
+    _validation = _validation_base
+
+    _fields = {
+        '_key': COL.Field(validators=[VAL.NotNull(), VAL.String()]),
+        'city_id': COL.Field(),
+        'long_city': COL.Field(),
+        'long_state': COL.Field(),
+        'long_country': COL.Field(),
+    }
+
+
 class WitnessEdges(COL.Edges):
 
     _validation = _validation_base

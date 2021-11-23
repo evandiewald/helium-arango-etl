@@ -1,4 +1,3 @@
-import sqlalchemy.exc
 from blockchain_tables import *
 import json
 from sqlalchemy.orm import Session, Query
@@ -9,6 +8,10 @@ from datetime import datetime, timedelta
 import h3
 from hashlib import md5
 from sqlalchemy.engine import Engine
+import logging
+
+
+logging.basicConfig(filename='../logs/etl.log', encoding='utf-8', level=logging.INFO)
 
 
 def get_result_batch(query: Query, slice_start: int, slice_end: int):
@@ -48,6 +51,9 @@ def get_accounts(session: Session) -> List[Dict]:
 
 
 class BatchedQuery(object):
+    """
+    Base class for batched queries for scalability. It is critical that you ensure that query results are deterministic, e.g. order_by [PK].
+    """
     def __init__(self, batch_size: int, query: Union[Query, str]):
         self.query = query
         self.batch_size = batch_size
@@ -65,7 +71,7 @@ class BatchedQuery(object):
 
 class AccountInventoryBatchedQuery(BatchedQuery):
     def __init__(self, session: Session, batch_size: int):
-        query = session.query(AccountInventory)
+        query = session.query(AccountInventory).order_by(AccountInventory.address) # order_by necessary for deterministic result
         super().__init__(batch_size, query)
 
     def get_next_batch(self) -> Union[List[Dict], List]:
@@ -79,6 +85,31 @@ class AccountInventoryBatchedQuery(BatchedQuery):
         else:
             self._update_slice()
         return accounts
+
+
+class CitiesBatchedQuery(BatchedQuery):
+    def __init__(self, session: Session, batch_size: int):
+        # order_by necessary for deterministic result
+        query = session.query(Locations.city_id, Locations.long_city, Locations.long_state, Locations.long_country).distinct().order_by(Locations.location)
+        super().__init__(batch_size, query)
+
+    def get_next_batch(self) -> Union[List[Dict], List]:
+        cities = []
+        for row in self.query.slice(self.slice_start, self.slice_end):
+            (city_id, long_city, long_state, long_country) = row
+            city = {
+                '_key': md5(city_id.encode('utf-8')).hexdigest(),
+                'city_id': city_id,
+                'long_city': long_city,
+                'long_state': long_state,
+                'long_country': long_country
+            }
+            cities.append(city)
+        if len(cities) == 0:
+            self.query_complete = True
+        else:
+            self._update_slice()
+        return cities
 
 
 def get_hotspots(session: Session, include_key: bool = True, h3_to_geo: bool = True) -> List[Dict]:
@@ -103,13 +134,15 @@ def get_hotspots(session: Session, include_key: bool = True, h3_to_geo: bool = T
 
 class GatewayInventoryBatchedQuery(BatchedQuery):
     def __init__(self, session: Session, batch_size: int):
-        query = session.query(GatewayInventory, GatewayStatus.online).outerjoin(GatewayStatus, GatewayInventory.address == GatewayStatus.address)
+        q1 = session.query(GatewayInventory, GatewayStatus.online, Locations.city_id, Locations.long_city, Locations.long_state, Locations.long_country)
+        q2 = q1.outerjoin(GatewayStatus, GatewayInventory.address == GatewayStatus.address)
+        query = q2.outerjoin(Locations, GatewayInventory.location == Locations.location).order_by(GatewayInventory.address)
         super().__init__(batch_size, query)
 
     def get_next_batch(self) -> Union[List[Dict], List]:
         gateways = []
         for row in self.query.slice(self.slice_start, self.slice_end):
-            (gateway_inventory, status) = row
+            (gateway_inventory, status, city_id, long_city, long_state, long_country) = row
             gateway = gateway_inventory.as_dict()
             gateway['status'] = status
             gateway['_key'] = gateway['address']
@@ -117,6 +150,14 @@ class GatewayInventoryBatchedQuery(BatchedQuery):
                 gateway['geo_location'] = {'coordinates': h3.h3_to_geo(gateway['location_hex'])[::-1], 'type': 'Point'}
             except TypeError:
                 gateway['geo_location'] = {'coordinates': None, 'type': 'Point'}
+            gateway['location_details'] = {'city_id': city_id,
+                                           'long_city': long_city,
+                                           'long_state': long_state,
+                                           'long_country': long_country}
+            if city_id:
+                gateway['location_details']['city_key'] = md5(city_id.encode('utf-8')).hexdigest() # get rid of illegal characters in some city id's
+            else:
+                gateway['location_details']['city_key'] = None
             # initialize extra fields as null
             gateway['rewards_5d'], gateway['betweenness_centrality'], gateway['pagerank'], gateway['hub_score'], gateway[
                 'authority_score'] = None, None, None, None, None
@@ -154,15 +195,23 @@ def get_hotspot_rewards_overall(engine: Engine, min_time: int, max_time: int) ->
 class GatewayRewardsBatchedQuery(BatchedQuery):
     def __init__(self, session: Session, batch_size: int, min_time: int, max_time: int):
         query = session.query(Rewards.gateway, func.sum(Rewards.amount)).where(and_(Rewards.time > min_time, Rewards.time < max_time)).group_by(Rewards.gateway).order_by(Rewards.gateway)
+        self.session = session
+        self.min_time = min_time
+        self.max_time = max_time
+        self.last_address = ''
         super().__init__(batch_size, query)
 
     def get_next_batch(self) -> Union[List[Dict], List]:
+        # windowed range queries faster than slices
+        self.query = self.session.query(Rewards.gateway, func.sum(Rewards.amount)).where(and_(Rewards.time > self.min_time, Rewards.time < self.max_time, Rewards.gateway > self.last_address)).group_by(
+            Rewards.gateway).order_by(Rewards.gateway)
         rewards = []
-        for reward in self.query.slice(self.slice_start, self.slice_end):
-            rewards.append({'address': reward[0], 'rewards': reward[1]})
+        for reward in self.query.all():
+            rewards.append({'_key': reward[0], 'rewards_5d': reward[1]})
         if len(rewards) == 0:
             self.query_complete = True
         else:
+            self.last_address = reward[0]
             self._update_slice()
         return rewards
 
@@ -183,7 +232,8 @@ def get_recent_payments(session: Session, min_time: int, max_time: int, transact
 
 class RecentPaymentsBatchedQuery(BatchedQuery):
     def __init__(self, session: Session, batch_size: int, min_time: int, max_time: int):
-        query = session.query(Transactions.fields, Transactions.time).filter(and_(Transactions.time > min_time, Transactions.time < max_time, Transactions.type.in_(('payment_v1', 'payment_v2'))))
+        q1 = session.query(Transactions.fields, Transactions.time).filter(and_(Transactions.time > min_time, Transactions.time < max_time, Transactions.type.in_(('payment_v1', 'payment_v2'))))
+        query = q1.order_by(Transactions.time, Transactions.hash)
         super().__init__(batch_size, query)
 
     def get_next_batch(self) -> Union[List[Dict], List]:
@@ -243,11 +293,10 @@ class RecentWitnessesBatchedQuery(BatchedQuery):
         query1 = session.query(Transactions.time, Transactions.fields)
         # work backwards in time so that we only end up with the most recent version of a given witness path
         query = query1.filter(and_(Transactions.time > min_time, Transactions.time < max_time, Transactions.type == 'poc_receipts_v1')).order_by(
-            Transactions.time.desc())
+            Transactions.time.desc(), Transactions.hash)
         super().__init__(batch_size, query)
 
     def get_next_batch(self) -> Union[List[Dict], List]:
-        unique_edges = []
         witnesses = []
         for row in self.query.slice(self.slice_start, self.slice_end):
             (time, fields) = row
@@ -255,17 +304,14 @@ class RecentWitnessesBatchedQuery(BatchedQuery):
             for witness in fields['path'][0]['witnesses']:
                 # give each path of challengee -> witness a unique hash so that we can simply replace in arango
                 edge_hash = md5((challengee + witness['gateway']).encode()).hexdigest()
-                if edge_hash not in unique_edges:
-                    # get all the relevant details and package in arango conventions for edges
-                    edge = {
-                        '_key': edge_hash,
-                        '_from': 'hotspots/' + challengee,
-                        '_to': 'hotspots/' + witness['gateway'],
-                        'time': time
-                    }
-                    # flip the order so that we can replace old versions of a witness path with new ones
-                    witnesses.insert(0, {**edge, **witness})  # Python 3.5+ syntax
-                    unique_edges.append(edge_hash)
+                # get all the relevant details and package in arango conventions for edges
+                edge = {
+                    '_key': edge_hash,
+                    '_from': 'hotspots/' + challengee,
+                    '_to': 'hotspots/' + witness['gateway'],
+                    'time': time
+                }
+                witnesses.append({**edge, **witness})
         if len(witnesses) == 0:
             self.query_complete = True
         else:
@@ -346,6 +392,7 @@ class DailyBalancesBatchedQuery(BatchedQuery):
             balances = []
             for balance in result.all():
                 _balance = {
+                    '_key': md5(str(balance).encode('utf-8')).hexdigest(),
                     'address': balance[0],
                     'date': balance[1].isoformat(),
                     'balance': balance[2],
@@ -353,19 +400,8 @@ class DailyBalancesBatchedQuery(BatchedQuery):
                     'staked_balance': balance[4]
                 }
                 balances.append(_balance)
-        unique_addresses = set(b['address'] for b in balances)
-        documents = []
-        for unique_address in unique_addresses:
-            documents.append({
-                '_key': unique_address,
-                'daily_balances': list({'date': balance['date'],
-                                        'balance': balance['balance'],
-                                        'dc_balance': balance['dc_balance'],
-                                        'staked_balance': balance['staked_balance']}
-                                       for balance in balances if balance['address'] == unique_address)
-            })
-        if len(documents) == 0:
+        if len(balances) == 0:
             self.query_complete = True
         else:
             self._update_slice()
-        return documents
+        return balances
